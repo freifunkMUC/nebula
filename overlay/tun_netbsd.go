@@ -108,26 +108,34 @@ func (t *tun) addIp(cidr netip.Prefix) error {
 	var err error
 
 	// TODO use syscalls instead of exec.Command
-	cmd := exec.Command("/sbin/ifconfig", t.Device, cidr.String(), cidr.Addr().String())
-	t.l.Debug("command: ", cmd.String())
-	if err = cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run 'ifconfig': %s", err)
+	if cidr.Addr().Is6() {
+		cmd := exec.Command("/sbin/ifconfig", t.Device, "inet6", cidr.Addr().String(), "prefixlen", strconv.Itoa(cidr.Bits()), "alias")
+		t.l.Debug("command: ", cmd.String())
+		if err = cmd.Run(); err != nil {
+			return fmt.Errorf("failed to run 'ifconfig': %s", err)
+		}
+
+		cmd = exec.Command("/sbin/route", "-n", "add", "-net", cidr.String(), cidr.Addr().String())
+		t.l.Debug("command: ", cmd.String())
+		if err = cmd.Run(); err != nil {
+			return fmt.Errorf("failed to run 'route add': %s", err)
+		}
+
+	} else {
+		cmd := exec.Command("/sbin/ifconfig", t.Device, cidr.String(), cidr.Addr().String())
+		t.l.Debug("command: ", cmd.String())
+		if err = cmd.Run(); err != nil {
+			return fmt.Errorf("failed to run 'ifconfig': %s", err)
+		}
+
+		cmd = exec.Command("/sbin/route", "-n", "add", "-net", cidr.String(), cidr.Addr().String())
+		t.l.Debug("command: ", cmd.String())
+		if err = cmd.Run(); err != nil {
+			return fmt.Errorf("failed to run 'route add': %s", err)
+		}
 	}
 
-	cmd = exec.Command("/sbin/route", "-n", "add", "-net", cidr.String(), cidr.Addr().String())
-	t.l.Debug("command: ", cmd.String())
-	if err = cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run 'route add': %s", err)
-	}
-
-	cmd = exec.Command("/sbin/ifconfig", t.Device, "mtu", strconv.Itoa(t.MTU))
-	t.l.Debug("command: ", cmd.String())
-	if err = cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run 'ifconfig': %s", err)
-	}
-
-	// Unsafe path routes
-	return t.addRoutes(false)
+	return nil
 }
 
 func (t *tun) Activate() error {
@@ -137,7 +145,15 @@ func (t *tun) Activate() error {
 			return err
 		}
 	}
-	return nil
+
+	cmd := exec.Command("/sbin/ifconfig", t.Device, "mtu", strconv.Itoa(t.MTU))
+	t.l.Debug("command: ", cmd.String())
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to run '%s': %s", cmd, err)
+	}
+
+	// Unsafe path routes
+	return t.addRoutes(false)
 }
 
 func (t *tun) reload(c *config.C, initial bool) error {
