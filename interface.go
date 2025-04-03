@@ -279,6 +279,7 @@ func (f *Interface) listenOut(i int) {
 		f.readOutsidePackets(fromUdpAddr, nil, plaintext[:0], payload, h, fwPacket, lhh, nb, i, ctCache.Get(f.l))
 	})
 
+	f.l.Errorf("udp reader %v is done", i)
 	f.wg.Done()
 }
 
@@ -296,6 +297,7 @@ func (f *Interface) listenIn(reader io.ReadWriteCloser, i int) {
 		n, err := reader.Read(packet)
 		if err != nil {
 			if !f.closed.Load() {
+				//TODO: should we close? yes
 				f.l.WithError(err).Error("Error while reading outbound packet")
 			}
 			break
@@ -304,6 +306,7 @@ func (f *Interface) listenIn(reader io.ReadWriteCloser, i int) {
 		f.consumeInsidePacket(packet[:n], fwPacket, nb, out, i, conntrackCache.Get(f.l))
 	}
 
+	f.l.Errorf("tun reader %v is done", i)
 	f.wg.Done()
 }
 
@@ -456,6 +459,7 @@ func (f *Interface) GetCertState() *CertState {
 func (f *Interface) Close() error {
 	f.closed.Store(true)
 
+	// Release the udp readers
 	for _, u := range f.writers {
 		err := u.Close()
 		if err != nil {
@@ -463,6 +467,13 @@ func (f *Interface) Close() error {
 		}
 	}
 
-	// Release the tun device
-	return f.inside.Close()
+	// Release the tun readers
+	for _, u := range f.readers {
+		err := u.Close()
+		if err != nil {
+			f.l.WithError(err).Error("Error while closing tun device")
+		}
+	}
+
+	return nil
 }
