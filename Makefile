@@ -27,6 +27,10 @@ DOCKER_IMAGE_TAG ?= latest
 
 LDFLAGS = -X main.Build=$(BUILD_NUMBER)
 
+ALL_DEBIAN = linux-amd64 \
+	linux-arm-7 \
+	linux-arm64
+
 ALL_LINUX = linux-amd64 \
 	linux-386 \
 	linux-ppc64le \
@@ -85,6 +89,9 @@ all: $(ALL:%=build/%/nebula) $(ALL:%=build/%/nebula-cert)
 docker: docker/linux-$(shell go env GOARCH)
 
 release: $(ALL:%=build/nebula-%.tar.gz)
+
+
+release-deb: $(ALL_DEBIAN:%=build/nebula-%.deb)
 
 release-linux: $(ALL_LINUX:%=build/nebula-%.tar.gz)
 
@@ -155,6 +162,22 @@ build/%/nebula.exe: build/%/nebula
 
 build/%/nebula-cert.exe: build/%/nebula-cert
 	mv $< $@
+
+build/nebula-%.deb: build/%/nebula build/%/nebula-cert
+	cp -av dist/debian/ build/$*
+	sed -i "s/ARCHITECTURE/$(word 2, $(subst -, ,$*))/" build/$*/debian/DEBIAN/control
+	# fix package name
+	if [ "$*" = "linux-arm-7" ]; then \
+	    sed -i "s/arm$$/armhf/" build/$*/debian/DEBIAN/control; \
+	fi
+	sed -i "s/VERSION/$(BUILD_NUMBER)/" build/$*/debian/DEBIAN/control
+	mkdir -p build/$*/debian/usr/bin
+	cp -av build/$*/nebula build/$*/nebula-cert build/$*/debian/usr/bin
+	mkdir -p build/$*/debian/lib/systemd/system
+	cp -v examples/service_scripts/nebula.service build/$*/debian/lib/systemd/system
+	mkdir -p build/$*/debian/etc/nebula
+	cp -v examples/config.yml build/$*/debian/etc/nebula
+	dpkg-deb -Zxz --build --root-owner-group build/$*/debian build/nebula-$*.deb
 
 build/nebula-%.tar.gz: build/%/nebula build/%/nebula-cert
 	tar -zcv -C build/$* -f $@ nebula nebula-cert
